@@ -1,6 +1,7 @@
 package browsermobproxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/bitly/go-simplejson"
@@ -10,10 +11,12 @@ import (
 	"strconv"
 	"strings"
 )
-
+var HTTPClient = http.DefaultClient
 type Params map[string]string
-var ports = make(portMap,10)
+var ports = make(portMap,100)
 type portMap map[int]bool
+// jsonContentType is JSON content type.
+const jsonContentType = "application/json"
 type Client struct {
 	Host string 	`json:"host"`
 	Port int		`json:"port"`
@@ -21,7 +24,7 @@ type Client struct {
 
 }
 func init(){
-	for i:=1;i<=10; i++{
+	for i:=1;i<=100; i++{
 		ports[8080+i]=false
 	}
 }
@@ -66,7 +69,7 @@ func NewClient(urlStr string,param Params,options Params) *Client{
 	return client
 }
 //关闭客户端
-func (c *Client)Clost() int{
+func (c *Client)Close() int{
 	req,_ :=http.NewRequest("DELETE",fmt.Sprintf("%s/proxy/%d",c.Host,c.Port),nil)
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -128,6 +131,20 @@ func(c *Client)Blacklist(regexp string, statusCode int){
 	req.URL.RawQuery = q.Encode()
 
 	client := &http.Client{}
+	_, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Fail to connect, %s\n", err)
+	}
+}
+//白名单
+func(c *Client)Whitelist(regexp string, statusCode int){
+	req,_ :=http.NewRequest("PUT",fmt.Sprintf("%s/proxy/%d/whitelist",c.Host,c.Port),nil)
+	q := req.URL.Query()
+	q.Add("regex", regexp)
+	q.Add("status", strconv.Itoa(statusCode))
+	req.URL.RawQuery = q.Encode()
+
+	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("Fail to connect, %s\n", err)
@@ -152,4 +169,86 @@ func (c *Client) RequestInterceptor(js string) int{
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode
+}
+//new page
+func (c *Client) NewPage(ref,title string) int{
+	params := map[string]string{
+		"pageRef": ref,
+		"pageTitle": title,
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	request,err :=http.NewRequest("PUT",fmt.Sprintf("%s/proxy/%d/har/pageRef",c.Host,c.Port),bytes.NewReader(data))
+	if err!=nil{
+		fmt.Sprintln(err)
+	}
+	request.Header.Add("Accept", jsonContentType)
+	response, err := HTTPClient.Do(request)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	return response.StatusCode
+}
+func (c *Client)Headers(headers map[string]string) int{
+	data, err := json.Marshal(headers)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	resp,err :=http.Post(fmt.Sprintf("%s/proxy/%d/headers",c.Host,c.Port),"text/plain",bytes.NewReader(data))
+	if err!=nil{
+		fmt.Sprintln(err)
+	}
+	return resp.StatusCode
+}
+func (c *Client) RewriteUrl(match,replace string) int{
+	params := map[string]string{
+		"matchRegex": match,
+		"replace": replace,
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	request,err :=http.NewRequest("PUT",fmt.Sprintf("%s/proxy/%d/rewrite",c.Host,c.Port),bytes.NewReader(data))
+	if err!=nil{
+		fmt.Sprintln(err)
+	}
+	request.Header.Add("Accept", jsonContentType)
+	response, err := HTTPClient.Do(request)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	return response.StatusCode
+}
+func (c *Client) ClearAllRewriteUrlRules() int{
+	request,err :=http.NewRequest("DELETE",fmt.Sprintf("%s/proxy/%d/rewrite",c.Host,c.Port),nil)
+	if err!=nil{
+		fmt.Sprintln(err)
+	}
+	response, err := HTTPClient.Do(request)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	return response.StatusCode
+}
+func (c *Client)Retry(count int) int{
+	params := map[string]int{
+		"retrycount": count,
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	request,err :=http.NewRequest("PUT",fmt.Sprintf("%s/proxy/%d/rewrite",c.Host,c.Port),bytes.NewReader(data))
+	if err!=nil{
+		fmt.Sprintln(err)
+	}
+	request.Header.Add("Accept", jsonContentType)
+	response, err := HTTPClient.Do(request)
+	if err != nil {
+		fmt.Sprintln(err)
+	}
+	return response.StatusCode
 }
